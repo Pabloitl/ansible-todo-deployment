@@ -1,0 +1,19 @@
+web:
+  dest_path: /var/www/html/www.pvargas.com
+  project_path: /home/ubuntu/react-todo-web
+  url: www.pvargas.com
+
+app:
+  secret_key: "^1m1!vny7!$97iykv*h4th3&sec95f$alt_6isur$pndf3e0bq"
+  dest_path: /var/www/html/app.pvargas.com
+  url: app.pvargas.com
+
+db:
+  name: app
+  user: root
+  password: password
+  host: localhost
+  port: 6603
+
+system:
+  port: 80

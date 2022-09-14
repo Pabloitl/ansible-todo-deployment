@@ -1,0 +1,5 @@
+{
+    "*.yml": {
+        "make": "ansible-playbook {}.yml"
+    }
+}

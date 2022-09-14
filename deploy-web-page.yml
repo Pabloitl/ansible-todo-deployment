@@ -1,0 +1,175 @@
+---
+- name: Deploy TODO web project
+  hosts: all
+  become: yes
+  gather_facts: false
+
+  tasks:
+
+    - name: Update package sources
+      shell: "curl -sL https://deb.nodesource.com/setup_18.x | bash -"
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+
+    - name: Install packages
+      apt:
+        name:
+          - apache2
+          - nodejs
+          - pipenv
+          - mysql-server
+          - python3-pymysql
+          - libmysqlclient-dev
+        state: latest
+
+    - name: Start MySQL
+      service:
+        name: mysql
+        state: restarted
+
+    - name: Clone front-end repository
+      git:
+        repo: https://github.com/Pabloitl/react-todo-web
+        dest: "{{ web.project_path }}"
+
+    - name: Install front-end dependencies
+      npm:
+        production: yes
+        path: "{{ web.project_path }}"
+
+    - name: Build web project
+      shell: npm run build
+      args:
+        chdir: "{{ web.project_path }}"
+
+    - name: Copy web files
+      shell: >
+        mkdir -p {{ web.dest_path }} &&
+        cp -r {{ web.project_path }}/build/* {{ web.dest_path }}/
+
+    - name: Configure web domain
+      lineinfile:
+        path: /etc/hosts
+        insertafter: '^127\.0\.0\.1'
+        line: "127.0.0.1 {{ web.url }}"
+
+    - name: Create app document root
+      file:
+        path: "{{ app.dest_path }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: 0664
+
+    - name: Clone back-end repository
+      git:
+        repo: https://github.com/Pabloitl/django-todo-api
+        dest: "{{ app.dest_path }}"
+
+    - name: Copy local env file
+      template:
+        src: .env.app
+        dest: "{{ app.dest_path }}/.env"
+        owner: ubuntu
+        group: ubuntu
+        mode: 0664
+
+    - name: Configure app domain
+      lineinfile:
+        path: /etc/hosts
+        insertafter: '^127\.0\.0\.1'
+        line: "127.0.0.1 {{ app.url }}"
+
+    - name: Install back-end dependencies
+      shell: pipenv install
+      args:
+        chdir: "{{ app.dest_path }}"
+
+    - name: Change administrators password
+      mysql_user:
+        name: root
+        password: "{{ db.password }}"
+        host: localhost
+        check_implicit_admin: yes
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        state: present
+
+    - name: Remove anonymous user accounts
+      mysql_user:
+        name: ''
+        host_all: yes
+        state: absent
+        login_user: root
+        login_password: "{{ db.password }}"
+
+    - name: Remove MySQL test database
+      mysql_db:
+        name: test
+        state: absent
+        login_user: root
+        login_password: "{{ db.password }}"
+
+    - name: Create app database
+      mysql_db:
+        name: "{{ db.name }}"
+        state: present
+        login_user: root
+        login_password: "{{ db.password }}"
+
+    - name: Prepare database structure
+      shell: >
+        pipenv run python manage.py makemigrations &&
+        pipenv run python manage.py migrate
+      args:
+        chdir: "{{ app.dest_path }}"
+
+    - name: Seed admin user for app
+      shell: pipenv run python manage.py seed_user
+      args:
+        chdir: "{{ app.dest_path }}"
+
+    - name: Collect static files
+      shell: pipenv run python manage.py collectstatic --no-input
+      args:
+        chdir: "{{ app.dest_path }}"
+
+    - name: Run back-end server
+      shell: >
+        killall python;
+        nohup pipenv run python manage.py runserver 0.0.0.0:8000 &
+      args:
+        chdir: "{{ app.dest_path }}"
+
+    - name: Enable apache2 proxy module
+      apache2_module:
+        name: proxy
+        state: present
+
+    - name: Enable apache2 proxy_http module
+      apache2_module:
+        name: proxy_http
+        state: present
+
+    - name: Configure Apache2
+      template:
+        src: apache.conf
+        dest: /etc/apache2/sites-available/000-default.conf 
+        owner: ubuntu
+        group: ubuntu
+        mode: 0664
+      notify: Restart Apache
+
+    - name: Allow HTTP traffic
+      ufw:
+        rule: allow
+        port: "{{ system.port }}"
+        proto: tcp
+  
+  handlers:
+
+    - name: Restart Apache
+      service:
+        name: apache2
+        state: restarted

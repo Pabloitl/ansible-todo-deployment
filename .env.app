@@ -1,0 +1,8 @@
+SECRET_KEY={{ app.secret_key }}
+DEBUG=False
+
+DB_NAME={{ db.name }}
+DB_USER={{ db.user }}
+DB_PASSWORD={{ db.password }}
+DB_HOST={{ db.host }}
+DB_PORT={{ db.port }}
